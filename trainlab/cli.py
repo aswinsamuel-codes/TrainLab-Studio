@@ -47,10 +47,14 @@ def main(argv=None) -> int:
     sp.add_argument("--resume", default=None, help="continue a previous run folder")
     sp.add_argument("--run-dir", default=None, help="where to save (default runs/<scenario>/...)")
     sp.add_argument("--no-live", action="store_true", help="don't record live trial-and-error clips")
+    sp.add_argument("--spectate", action="store_true", help="real-time frames for Studio's live view")
+    sp.add_argument("--view", action="store_true", help="open an interactive 3D window to watch training live")
 
     sp = sub.add_parser("resume", help="continue a run that was cut short (shutdown, Stop, low memory)")
     sp.add_argument("run", nargs="?", default=None, help="run folder (default: the most recent unfinished run)")
     sp.add_argument("--no-live", action="store_true")
+    sp.add_argument("--spectate", action="store_true")
+    sp.add_argument("--view", action="store_true")
 
     sub.add_parser("status", help="show this machine's training profile and unfinished runs")
 
@@ -106,12 +110,12 @@ def main(argv=None) -> int:
         from trainlab.agents.train import train
 
         rd = train(a.scenario, a.algo, a.steps, a.envs, a.seed, a.level, not a.no_curriculum, a.wind,
-                   run_dir=a.run_dir, resume=a.resume, live=not a.no_live)
+                   run_dir=a.run_dir, resume=a.resume, live=not a.no_live, spectate=a.spectate, view=a.view)
         print(f"\nDone. Run folder: {rd}\n  watch:  trainlab watch \"{rd}\"\n  record: trainlab record \"{rd}\"")
     elif a.cmd == "resume":
         from trainlab.agents.train import resume_run
 
-        rd = resume_run(a.run, live=not a.no_live)
+        rd = resume_run(a.run, live=not a.no_live, spectate=a.spectate, view=a.view)
         print(f"\nRun folder: {rd}")
     elif a.cmd == "status":
         import json as _json

@@ -94,6 +94,39 @@ def _load_json(path: Path, default):
         return default
 
 
+def _live_frame(run_dir: Path):
+    """(latest real-time frame as PIL image or None, status markdown, finished?)."""
+    from PIL import Image
+
+    live = run_dir / "live"
+    spec = _load_json(live / "spectator.json", {})
+    meta = _load_json(run_dir / "run.json", {})
+    finished = bool(spec.get("finished")) or "finished" in meta
+    frame = None
+    try:
+        with Image.open(live / "frame.jpg") as im:
+            frame = im.convert("RGB").copy()
+    except (OSError, ValueError):
+        pass
+    paused = _load_json(live / "paused.json", {})
+    if paused and not finished and time.time() - paused.get("since", 0) < 30:
+        return frame, (f"### ⏸ Paused: laptop is low on memory\nOnly **{paused['free_gb']} GB** RAM free "
+                       f"(needs {paused['need_gb']:.2f} GB). Progress is saved. Close a few apps (videos, Spotify, "
+                       "Discord, extra browser tabs) and training continues by itself. If memory stays low for "
+                       "10 minutes it stops safely, then use **Resume unfinished run**."), False
+    if not spec:
+        msg = ("Waiting for the first live frame…" if not finished else
+               "This run wasn't started with live view. In the terminal, add `--spectate` (or `--view` for a 3D window).")
+        return frame, msg, finished
+    age = time.time() - spec.get("time", 0)
+    state = "⏹ training finished" if finished else ("🔴 LIVE" if age < 10 else f"⏸ no new frame for {age:.0f}s (paused?)")
+    result = f"\n\nLast result: **{spec['result']}**" if spec.get("result") else ""
+    md = (f"### {state}\n**Try #{spec['episode']}** · score {spec['score']} · level {spec['level']}  \n"
+          f"{spec['steps'] / 1000:.0f}k steps learned  \n"
+          f"Live tries so far: ✅ {spec['wins']} won · ❌ {spec['fails']} failed{result}")
+    return frame, md, finished
+
+
 def _live_outputs(run_dir: Path):
     """(latest clip, scoreboard markdown, win-rate dataframe, gallery items) for the live panel."""
     live = run_dir / "live"
@@ -226,6 +259,7 @@ def build() -> gr.Blocks:
                     refresh_btn = gr.Button("↻", scale=0, min_width=48)
                     algo_dd = gr.Dropdown(["ppo", "sac", "td3", "a2c", "dqn"], value="ppo", label="Algorithm", scale=1)
                     curriculum_cb = gr.Checkbox(True, label="Difficulty curriculum", scale=1)
+                    window_cb = gr.Checkbox(False, label="Also open interactive 3D window", scale=1)
                 steps_sl = gr.Slider(50_000, 5_000_000, value=300_000, step=50_000, label="Training steps")
                 with gr.Row():
                     start_btn = gr.Button("Start training", variant="primary")
@@ -237,8 +271,15 @@ def build() -> gr.Blocks:
                     watch_btn = gr.Button("Watch live", scale=0, min_width=120)
                 train_md = gr.Markdown()
 
-                gr.Markdown("### 🔴 Live: trial and error\nEvery ~25k steps the agent, while it is still "
-                            "learning, plays one attempt in 3D. Watch it go from crashing to winning.")
+                gr.Markdown("### 🔴 Live 3D: watch it learn right now\nThe current, still-learning agent drives "
+                            "non-stop in a spare copy of the world (updates about 2× a second, costs roughly 5–10% "
+                            "training speed). Tick *interactive 3D window* to rotate and zoom with the mouse "
+                            "(that window uses more CPU).")
+                with gr.Row():
+                    live_now = gr.Image(label="LIVE", type="pil", height=380, scale=3)
+                    live_now_md = gr.Markdown("Start a training run to watch it live.")
+                gr.Markdown("### Trial and error so far\nEvery ~25k steps one full attempt is saved as a clip, "
+                            "so you can see it go from crashing to winning.")
                 with gr.Row():
                     live_clip = gr.Image(label="Latest attempt (3D)", type="filepath", height=300, scale=3)
                     with gr.Column(scale=2):
@@ -253,6 +294,7 @@ def build() -> gr.Blocks:
                                    color="series", title="Reward during training", height=280,
                                    x_title="environment steps", y_title="mean episode reward")
                 timer = gr.Timer(3.0, active=False)
+                live_timer = gr.Timer(0.5, active=False)
 
             # --------------------------------------------------------- Results
             with gr.Tab("4 · Results", id="results"):
@@ -394,24 +436,26 @@ def build() -> gr.Blocks:
         sample_btn.click(lambda: (gr.update(value=SAMPLE_SCENARIO), gr.Tabs(selected="train")), None,
                          [scenario_dd, tabs])
 
-        def start_training(state, scenario, algo, steps, curriculum):
+        def start_training(state, scenario, algo, steps, curriculum, window):
             if state.get("proc") is not None and state["proc"].poll() is None:
                 return state, "A training run is already going. Stop it first.", gr.update(), gr.Timer(active=True)
             if not scenario:
                 return state, "Pick a scenario.", gr.update(), gr.Timer(active=False)
             run_dir = RUNS_DIR / scenario / f"{algo}_studio_{time.strftime('%Y%m%d-%H%M%S')}"
             cmd = [sys.executable, "-m", "trainlab.cli", "train", scenario, "--algo", algo,
-                   "--steps", str(int(steps)), "--run-dir", str(run_dir)]
+                   "--steps", str(int(steps)), "--run-dir", str(run_dir), "--spectate"]
             if not curriculum:
                 cmd.append("--no-curriculum")
+            if window:
+                cmd.append("--view")
             run_dir.mkdir(parents=True, exist_ok=True)
             log = open(run_dir / "studio_train.log", "w")
             proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT)
             state = {"proc": proc, "run_dir": run_dir}
             return state, f"Started. Logs: `{run_dir / 'studio_train.log'}`", gr.update(), gr.Timer(active=True)
 
-        start_btn.click(start_training, [train_state, scenario_dd, algo_dd, steps_sl, curriculum_cb],
-                        [train_state, train_md, plot, timer])
+        start_btn.click(start_training, [train_state, scenario_dd, algo_dd, steps_sl, curriculum_cb, window_cb],
+                        [train_state, train_md, plot, timer]).then(lambda: gr.Timer(active=True), None, live_timer)
 
         def resume_training(state):
             from trainlab.agents.train import find_unfinished
@@ -422,11 +466,12 @@ def build() -> gr.Blocks:
             if run_dir is None:
                 return state, "Nothing to resume: every run has finished.", gr.Timer(active=False)
             log = open(run_dir / "studio_train.log", "a")
-            proc = subprocess.Popen([sys.executable, "-m", "trainlab.cli", "resume", str(run_dir)],
+            proc = subprocess.Popen([sys.executable, "-m", "trainlab.cli", "resume", str(run_dir), "--spectate"],
                                     stdout=log, stderr=subprocess.STDOUT)
             return {"proc": proc, "run_dir": run_dir}, f"Resuming `{run_dir}`", gr.Timer(active=True)
 
-        resume_btn.click(resume_training, [train_state], [train_state, train_md, timer])
+        resume_btn.click(resume_training, [train_state], [train_state, train_md, timer]).then(
+            lambda: gr.Timer(active=True), None, live_timer)
 
         def stop_training(state):
             if state.get("run_dir"):
@@ -452,12 +497,22 @@ def build() -> gr.Blocks:
         live_outputs = [live_clip, live_md, win_plot, live_gallery]
         timer.tick(poll, [train_state], [train_md, plot, *live_outputs, timer])
 
+        def poll_live(state):
+            run_dir = state.get("run_dir")
+            if not run_dir:
+                return gr.update(), gr.update(), gr.Timer(active=False)
+            frame, md, finished = _live_frame(Path(run_dir))
+            return (frame if frame is not None else gr.update()), md, gr.Timer(active=not finished)
+
+        live_timer.tick(poll_live, [train_state], [live_now, live_now_md, live_timer])
+
         def watch_run(run):
             if not run:
                 return {"proc": None, "run_dir": None}, "Pick a run.", gr.Timer(active=False)
             return {"proc": None, "run_dir": Path(run)}, f"Watching `{run}`", gr.Timer(active=True)
 
-        watch_btn.click(watch_run, [watch_dd], [train_state, train_md, timer])
+        watch_btn.click(watch_run, [watch_dd], [train_state, train_md, timer]).then(
+            lambda: gr.Timer(active=True), None, live_timer)
         tabs.select(lambda: gr.update(choices=[str(p.parent) for p in sorted(
             RUNS_DIR.glob("*/*/run.json"), key=lambda p: p.stat().st_mtime, reverse=True)]), None, watch_dd)
 

@@ -36,6 +36,7 @@ class MujocoScenarioEnv(gym.Env):
     camera = "chase"
     wind_body: str | None = None  # body that feels wind drag (None = no wind)
     drag_coef = 1.5  # F = c * |w - v| * (w - v)
+    fast_render = False  # True: no shadows/reflections (cheaper live previews)
 
     # One dict per difficulty level. Values are fixed numbers or [low, high]
     # ranges sampled uniformly at every reset (domain randomization).
@@ -80,6 +81,9 @@ class MujocoScenarioEnv(gym.Env):
     def apply_action(self, action: np.ndarray) -> None:
         lo, hi = self.model.actuator_ctrlrange.T
         self.data.ctrl[:] = lo + (action + 1.0) * 0.5 * (hi - lo)
+
+    def update_visuals(self) -> None:
+        """Optional: animate looks-only geoms (exhaust, lights). Called only when rendering."""
 
     def substep_control(self) -> None:
         """Optional low-level controller run every physics step (e.g. traction control)."""
@@ -131,6 +135,8 @@ class MujocoScenarioEnv(gym.Env):
             obs = np.nan_to_num(obs, nan=0.0, posinf=0.0, neginf=0.0)
             terminated, reason, reward = True, "unstable", -100.0
         info = {"is_success": bool(success), "reason": reason, "reward_terms": terms, "level": self.level}
+        if self.render_mode is not None:
+            self.update_visuals()
         if self.render_mode == "human":
             self.render()
         return obs.astype(np.float32), float(reward), bool(terminated), False, info
@@ -226,6 +232,9 @@ class MujocoScenarioEnv(gym.Env):
                 self._renderer = mujoco.Renderer(self.model, self.render_height, self.render_width)
             cam = self.camera if mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_CAMERA, self.camera) >= 0 else -1
             self._renderer.update_scene(self.data, camera=cam)
+            if self.fast_render:  # live preview: skip the costly shadow + reflection passes
+                self._renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = False
+                self._renderer.scene.flags[mujoco.mjtRndFlag.mjRND_REFLECTION] = False
             return self._renderer.render()
         if self.render_mode == "human":
             if self._viewer is None:

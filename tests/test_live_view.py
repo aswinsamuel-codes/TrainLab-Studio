@@ -37,6 +37,29 @@ def test_live_outputs_reads_run_folder(tmp_path):
     assert gallery[0][1].startswith("✅ #2") and gallery[1][1].startswith("❌ #1")
 
 
+def test_live_frame_states(tmp_path):
+    import time
+
+    from trainlab.studio.app import _live_frame
+
+    live = tmp_path / "live"
+    live.mkdir()
+    (tmp_path / "run.json").write_text("{}")
+    assert "Waiting" in _live_frame(tmp_path)[1]
+
+    Image.new("RGB", (48, 27)).save(live / "frame.jpg")
+    (live / "spectator.json").write_text(json.dumps({"episode": 4, "steps": 30000, "level": 0, "score": 12.5,
+                                                     "wins": 1, "fails": 3, "result": None, "time": time.time()}))
+    frame, md, finished = _live_frame(tmp_path)
+    assert frame is not None and "LIVE" in md and "Try #4" in md and not finished
+
+    (live / "paused.json").write_text(json.dumps({"free_gb": 0.05, "need_gb": 0.35, "since": time.time()}))
+    assert "Paused" in _live_frame(tmp_path)[1]
+
+    (tmp_path / "run.json").write_text(json.dumps({"finished": "now"}))
+    assert _live_frame(tmp_path)[2] is True
+
+
 def test_live_outputs_empty_run(tmp_path):
     from trainlab.studio.app import _live_outputs
 

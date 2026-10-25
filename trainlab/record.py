@@ -57,8 +57,10 @@ def record(model_path: str | Path, out: str | Path, episodes: int = 2, level: in
     out.parent.mkdir(parents=True, exist_ok=True)
     fps = int(u.metadata["render_fps"])
     if out.suffix.lower() == ".gif":
+        from trainlab.core.live import save_small_gif
+
         small = [np.asarray(Image.fromarray(f).resize((width // 2, height // 2))) for f in frames[::2]]
-        imageio.mimsave(out, small, duration=2000 / fps, loop=0)
+        save_small_gif(small, out, frame_ms=2000 / fps, max_frames=300, colors=192)
     else:
         imageio.mimsave(out, frames, fps=fps, macro_block_size=8)
     print(f"saved {out}  ({len(frames)} frames)  episodes: {stats}")

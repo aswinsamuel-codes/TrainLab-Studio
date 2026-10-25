@@ -5,10 +5,15 @@ rendered copy of the environment, and the clip is saved with its outcome, so you
 watch the agent go from crashing to winning. Every finished training episode is also
 tallied by outcome (parked, fell, flipped, time up, ...).
 
+``SpectatorCallback`` is the real-time version: a spare copy of the environment where the
+current policy plays non-stop, a few frames per second, written to live/frame.jpg (Studio
+shows it) and/or shown in MuJoCo's interactive 3D window.
+
 Files in <run>/live/:
     attempt_0003.gif / .png    the clip and its final frame
     attempts.json              one entry per recorded attempt
     stats.json                 win/fail counts by reason + success-rate timeline
+    frame.jpg, spectator.json  the latest real-time frame and its status
 """
 
 from __future__ import annotations
@@ -41,9 +46,10 @@ def _hud(frame: np.ndarray, top: str, banner: str | None = None, ok: bool = Fals
     return np.asarray(img)
 
 
-def save_small_gif(frames: list[np.ndarray], path: Path, frame_ms: float, max_frames: int = 120) -> None:
+def save_small_gif(frames: list[np.ndarray], path: Path, frame_ms: float, max_frames: int = 120,
+                   colors: int = 128) -> None:
     """Browser-friendly GIF: at most ``max_frames`` frames (sped up to keep real time) and one shared
-    128-colour palette, so a 30 s attempt stays around a megabyte instead of ~10 MB."""
+    palette, so a 30 s attempt stays around a megabyte instead of ~10 MB."""
     from PIL import Image
 
     step = max(1, int(np.ceil(len(frames) / max_frames)))
@@ -51,17 +57,141 @@ def save_small_gif(frames: list[np.ndarray], path: Path, frame_ms: float, max_fr
     if len(frames) > 1 and keep[-1] is not frames[-1]:
         keep.append(frames[-1])
     imgs = [Image.fromarray(f) for f in keep]
-    palette = imgs[len(imgs) // 2].quantize(colors=128, method=Image.Quantize.FASTOCTREE)
+    palette = imgs[len(imgs) // 2].quantize(colors=colors, method=Image.Quantize.FASTOCTREE)
     pal = [im.quantize(palette=palette, dither=Image.Dither.NONE) for im in imgs]
     durations = [int(frame_ms * step)] * len(pal)
     durations[-1] = 1500  # hold the verdict
     pal[0].save(path, save_all=True, append_images=pal[1:], duration=durations, loop=0, optimize=True)
 
 
+def _replace(tmp: Path, target: Path) -> None:
+    import os
+
+    try:
+        os.replace(tmp, target)
+    except PermissionError:  # Studio is reading the old file right now; next frame will do
+        tmp.unlink(missing_ok=True)
+
+
 def _write_json(path: Path, data) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=1))
-    tmp.replace(path)  # atomic, so Studio never reads half a file
+    _replace(tmp, path)  # atomic, so Studio never reads half a file
+
+
+class SpectatorCallback(BaseCallback):
+    """Watch the agent learn in real time.
+
+    A spare env (in the training process, never used for learning) is driven by the
+    current policy with exploration on, so it behaves like the training episodes. It's
+    paced by wall-clock time, not training steps, so the cost stays fixed: about
+    ``fps`` renders per second (around 5% of training speed on a laptop).
+
+    frames=True  -> live/frame.jpg + live/spectator.json for Studio
+    window=True  -> MuJoCo's interactive 3D viewer (rotate/zoom with the mouse)
+    """
+
+    def __init__(self, run_dir: Path, scenario: str, discrete: bool = False, wind: float | None = None,
+                 frames: bool = True, window: bool = False, fps: float = 3.0, size=(480, 272)):
+        super().__init__(0)
+        self.dir = Path(run_dir) / "live"
+        self.scenario, self.discrete, self.wind = scenario, discrete, wind
+        self.frames, self.window, self.size = frames, window, size
+        # The 3D window wants smooth real-time motion; the Studio image only refreshes ~2x/second,
+        # so 3 renders/s (no shadows) is enough there. Measured on the 8 GB laptop: a render is
+        # ~16 ms at 480x272 without shadows vs ~37 ms at 640x360 with them.
+        self.fps = 20.0 if window else fps
+        self.steps_per_frame = 1 if window else 5
+        self.env = self.viewer = None
+        self.next_t = 0.0
+        self.hold = 0
+        self.episode, self.wins, self.fails = 0, 0, 0
+        self.ep_return, self.last = 0.0, {}
+
+    def _on_training_start(self) -> None:
+        self.dir.mkdir(parents=True, exist_ok=True)
+
+    def _new_episode(self) -> None:
+        if self.env is None:
+            self.env = EnvFactory(self.scenario, 7_000, 0, self.wind, self.discrete, "rgb_array")()
+            u = self.env.unwrapped
+            u.render_width, u.render_height = self.size
+            u.fast_render = True
+            if self.window:
+                from mujoco import viewer as mj_viewer
+
+                self.viewer = mj_viewer.launch_passive(u.model, u.data)
+        try:
+            level = int(self.training_env.env_method("get_level", indices=[0])[0])
+        except Exception:
+            level = 0
+        self.env.unwrapped.set_level(level)
+        self.obs, _ = self.env.reset(seed=7_000 + self.episode)
+        self.episode += 1
+        self.ep_return = 0.0
+
+    def _on_step(self) -> bool:
+        now = time.monotonic()
+        if now < self.next_t:
+            return True
+        self.next_t = now + 1.0 / self.fps
+        if self.viewer is not None and not self.viewer.is_running():
+            self.window = False  # user closed the 3D window: keep training, stop drawing there
+            self.viewer = None
+        if self.hold > 0:  # showing the WON/FAILED banner for a moment
+            self.hold -= 1
+            if self.hold == 0:
+                self._new_episode()
+            return True
+        if self.env is None:
+            self._new_episode()
+
+        vecnorm = self.model.get_vec_normalize_env()
+        done, info = False, {}
+        for _ in range(self.steps_per_frame):
+            o = vecnorm.normalize_obs(self.obs[None])[0] if vecnorm is not None else self.obs
+            action, _ = self.model.predict(o, deterministic=False)
+            self.obs, r, term, trunc, info = self.env.step(action)
+            self.ep_return += float(r)
+            done = term or trunc
+            if done:
+                break
+        if self.viewer is not None:
+            self.viewer.sync()
+
+        u = self.env.unwrapped
+        banner, ok = None, False
+        if done:
+            ok = bool(info.get("is_success"))
+            reason = (info.get("reason") or "time_up").replace("_", " ").upper()
+            banner = ("SUCCESS: " if ok else "FAILED: ") + reason
+            self.wins += ok
+            self.fails += not ok
+            self.hold = int(1.5 * self.fps)
+        self.last = {"episode": self.episode, "steps": int(self.num_timesteps), "level": u.level,
+                     "score": round(self.ep_return, 1), "wins": self.wins, "fails": self.fails,
+                     "result": banner, "time": time.time()}
+        if self.frames:
+            hud = (f"LIVE · {self.num_timesteps / 1000:.0f}k steps learned · level {u.level} · "
+                   f"try #{self.episode} · score {self.ep_return:.0f}")
+            if hasattr(u, "car_vel"):
+                hud += f" · {np.linalg.norm(u.car_vel) * 3.6:.0f} km/h"
+            from PIL import Image
+
+            img = Image.fromarray(_hud(self.env.render(), hud, banner, ok))
+            tmp = self.dir / "frame_tmp.jpg"
+            img.save(tmp, quality=80)
+            _replace(tmp, self.dir / "frame.jpg")
+            _write_json(self.dir / "spectator.json", self.last)
+        return True
+
+    def _on_training_end(self) -> None:
+        if self.frames and self.last:
+            _write_json(self.dir / "spectator.json", {**self.last, "finished": True})
+        if self.viewer is not None:
+            self.viewer.close()
+        if self.env is not None:
+            self.env.close()
 
 
 class LiveViewCallback(BaseCallback):

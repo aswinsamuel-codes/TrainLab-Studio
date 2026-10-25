@@ -23,7 +23,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecMoni
 from trainlab.core.curriculum import (AutosaveCallback, CurriculumCallback, SaveVecNormalizeCallback,
                                      StopFileCallback)
 from trainlab.core.factory import EnvFactory
-from trainlab.core.live import LiveViewCallback
+from trainlab.core.live import LiveViewCallback, SpectatorCallback
 from trainlab.core.resources import MemoryGuardCallback, be_nice, profile
 from trainlab.core.registry import GENERATED_DIR, get_scenario
 
@@ -95,19 +95,21 @@ def find_unfinished() -> Path | None:
     return next((r for r in runs if is_unfinished(r)), None)
 
 
-def resume_run(run_dir: Path | None = None, verbose: int = 1, live: bool = True) -> Path:
+def resume_run(run_dir: Path | None = None, verbose: int = 1, live: bool = True, spectate: bool = False,
+               view: bool = False) -> Path:
     run_dir = Path(run_dir) if run_dir else find_unfinished()
     if run_dir is None:
         raise SystemExit("Nothing to resume: every run in runs/ has finished.")
     meta = json.loads((run_dir / "run.json").read_text())
     return train(meta["scenario"], meta["algo"], meta["steps"], meta.get("n_envs"), meta["seed"],
                  curriculum=meta.get("curriculum", True), wind=meta.get("wind"), run_dir=run_dir,
-                 resume=run_dir, verbose=verbose, live=live)
+                 resume=run_dir, verbose=verbose, live=live, spectate=spectate, view=view)
 
 
 def train(scenario: str, algo: str = "ppo", steps: int = 1_000_000, n_envs: int | None = None,
           seed: int = 0, level: int = 0, curriculum: bool = True, wind: float | None = None,
-          run_dir: Path | None = None, resume: Path | None = None, verbose: int = 1, live: bool = True) -> Path:
+          run_dir: Path | None = None, resume: Path | None = None, verbose: int = 1, live: bool = True,
+          spectate: bool = False, view: bool = False) -> Path:
     algo = algo.lower()
     if algo not in ALGOS:
         raise ValueError(f"Unknown algo '{algo}'. Choose from {', '.join(ALGOS)}")
@@ -180,11 +182,14 @@ def train(scenario: str, algo: str = "ppo", steps: int = 1_000_000, n_envs: int 
 
     autosave = AutosaveCallback(run_dir, every=int(cfg.get("autosave_every", 20_000)))
     guard = MemoryGuardCallback(autosave, min_free_gb=float(cfg.get("min_free_ram_gb", machine["min_free_gb"])),
-                                verbose=verbose)
+                                verbose=verbose, run_dir=run_dir)
     callbacks = [eval_cb, ckpt_cb, autosave, guard, StopFileCallback(run_dir)]
     if live:
         callbacks.append(LiveViewCallback(run_dir, scenario, discrete, wind,
                                           every_steps=int(cfg.get("live_every", 25_000))))
+    if spectate or view:
+        callbacks.append(SpectatorCallback(run_dir, scenario, discrete, wind, frames=spectate, window=view,
+                                           fps=float(cfg.get("spectator_fps", 3))))
 
     t0 = time.time()
     try:

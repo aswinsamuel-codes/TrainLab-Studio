@@ -92,7 +92,15 @@ repair rounds; bigger models get it right more often. From the terminal:
 1. **Create.** Describe the world, for example *"a drone landing on a pitching ship deck in gusty wind"*.
 2. **Review.** See a preview, the controls and the reward design in plain English, and the
    generated code (which you can edit). Ask for changes ("make the wind stronger").
-3. **Train.** Pick an algorithm and a step budget. The **live trial-and-error panel** shows
+3. **Train.** Pick an algorithm and a step budget.
+
+   **🔴 Live 3D** shows the agent learning in real time: the current policy drives non-stop
+   in a spare copy of the world, refreshed about twice a second, at roughly 5–10% of
+   training speed. Tick *interactive 3D window* (or run `trainlab train --view`) for MuJoCo's
+   3D viewer, where you can rotate and zoom with the mouse; that window uses more CPU. If the
+   laptop runs low on memory, the panel says so and training pauses safely.
+
+   Below it, the **trial-and-error panel** shows
    the agent's actual 3D attempts as it learns:
    - every ~25k steps, the still-learning agent plays one attempt;
    - each attempt is stamped ✅ WON or ❌ FAILED (fell, flipped, body hit, time up, ...);

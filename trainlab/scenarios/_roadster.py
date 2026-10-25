@@ -29,11 +29,128 @@ STEER_MAX = 0.5  # rad
 WHEEL_RADIUS = 0.35
 
 
+N_PUFFS = 48  # smoke particle pool (visual only)
+
+
 def roadster_xml(world: str, name: str = "roadster", gravity: str = "0 0 -9.81",
                  start=(0.0, 0.0, 0.7), quat=(1.0, 0.0, 0.0, 0.0), extra: str = "") -> str:
+    # Unused puffs sit (fully transparent) at the car's start. Parking them far away would blow up
+    # MuJoCo's scene extent, which pushes the camera's near clip plane out and hides the car.
+    start_str = " ".join(f"{v:g}" for v in start)
+    puffs = "\n".join(f'<body name="puff{i}" mocap="true" pos="{start_str}">'
+                      f'<geom class="deco" type="sphere" size="0.2" material="mat_smoke"/></body>'
+                      for i in range(N_PUFFS))
     return Template(ASSET.read_text()).substitute(
-        name=name, gravity=gravity, world=world, extra=extra,
+        name=name, gravity=gravity, world=world + "\n" + puffs, extra=extra,
         start=" ".join(f"{v:g}" for v in start), quat=" ".join(f"{v:g}" for v in quat))
+
+
+# nozzle -> (exit point, exhaust direction), both in the car's frame
+NOZZLES = {
+    "fl": ((1.6, 0.6, -0.31), (0, 0, -1)), "fr": ((1.6, -0.6, -0.31), (0, 0, -1)),
+    "rl": ((-1.6, 0.6, -0.31), (0, 0, -1)), "rr": ((-1.6, -0.6, -0.31), (0, 0, -1)),
+    "rear": ((-2.23, 0, 0), (-1, 0, 0)), "front": ((2.2, 0, 0.02), (1, 0, 0)),
+    "left": ((1.6, 1.02, 0.02), (0, 1, 0)), "right": ((1.6, -1.02, 0.02), (0, -1, 0)),
+}
+GROUND_ONLY = np.array([1, 0, 0, 0, 0, 0], dtype=np.uint8)  # ray casts see world geoms (group 0) only
+
+
+class ThrusterFX:
+    """Cold-gas plumes + smoke puffs. Pure visuals: only runs when the env renders."""
+
+    def __init__(self, env):
+        self.env = env
+        m = env.model
+        self.plumes = {k: env.geom(f"plume_{k}") for k in NOZZLES}
+        self.puff_mocap = [m.body_mocapid[env.body(f"puff{i}")] for i in range(N_PUFFS)]
+        self.puff_geom = [m.body_geomadr[env.body(f"puff{i}")] for i in range(N_PUFFS)]
+        self.rng = np.random.default_rng(1)
+        self.space = abs(m.opt.gravity[2]) < 1e-6  # vacuum: no lingering smoke
+        self.life = 0.6 if self.space else 1.6
+        self.reset()
+
+    def reset(self) -> None:
+        self.pos = np.zeros((N_PUFFS, 3))
+        self.vel = np.zeros((N_PUFFS, 3))
+        self.age = np.full(N_PUFFS, np.inf)
+        self.strength = np.zeros(N_PUFFS)
+        self.next = 0
+        for k, g in self.plumes.items():
+            self.env.model.geom_rgba[g][3] = 0.0
+        for i in range(N_PUFFS):
+            self._hide(i)
+
+    def _hide(self, i: int) -> None:
+        self.env.model.geom_rgba[self.puff_geom[i]][3] = 0.0  # invisible; position doesn't matter
+
+    def levels(self) -> dict[str, float]:
+        """How hard each nozzle fires (0..1), from the thrust the car actually applied."""
+        e, c = self.env, self.env.controls
+        if e.fuel <= 0.0:
+            return dict.fromkeys(NOZZLES, 0.0)
+        up = max(c["thrust_z"] if "thrust_z" in e.CONTROLS else c["lift"], 0.0)
+        p, r, y = c["pitch"], c["roll"], c["yaw"]
+        lv = {  # +pitch (nose down) fires the rear jets, +roll lifts the left side, +yaw pushes the nose left
+            "fl": up + 0.6 * max(-p, 0) + 0.6 * max(r, 0), "fr": up + 0.6 * max(-p, 0) + 0.6 * max(-r, 0),
+            "rl": up + 0.6 * max(p, 0) + 0.6 * max(r, 0), "rr": up + 0.6 * max(p, 0) + 0.6 * max(-r, 0),
+            "rear": max(c["thrust_x"], 0), "front": max(-c["thrust_x"], 0),
+            "right": max(c["thrust_y"], 0) + 0.6 * max(y, 0), "left": max(-c["thrust_y"], 0) + 0.6 * max(-y, 0),
+        }
+        return {k: float(np.clip(v, 0.0, 1.0)) for k, v in lv.items()}
+
+    def update(self, dt: float) -> None:
+        e, m, d = self.env, self.env.model, self.env.data
+        R, origin, v_car = e.car_rot, e.car_pos, e.car_vel
+        for k, level in self.levels().items():
+            g = self.plumes[k]
+            exit_pt, direction = (np.array(a, dtype=float) for a in NOZZLES[k])
+            if level < 0.02:
+                m.geom_rgba[g][3] = 0.0
+                continue
+            i = level * (1.0 + 0.12 * self.rng.standard_normal())  # flicker
+            half, radius = 0.05 + 0.45 * i, 0.08 + 0.12 * i  # short, fat, see-through jet
+            m.geom_size[g][:2] = (radius, half)
+            m.geom_pos[g] = exit_pt + direction * (half + radius * 0.3)
+            m.geom_rgba[g][3] = 0.1 + 0.25 * min(i, 1.0)
+            if level > 0.12 and self.rng.random() < 0.35 + 0.6 * level:
+                self._emit(origin + R @ (exit_pt + direction * 2 * half), R @ direction, v_car, level)
+        self._advance(dt)
+
+    def _emit(self, start: np.ndarray, world_dir: np.ndarray, v_car: np.ndarray, level: float) -> None:
+        e = self.env
+        i = self.next
+        self.next = (self.next + 1) % N_PUFFS
+        speed = 5.0 * level
+        vel = world_dir * speed + 0.5 * v_car + self.rng.normal(scale=0.4, size=3)
+        pos = start.copy()
+        if not self.space and world_dir[2] < -0.3:  # jet hits the ground: smoke spreads sideways
+            hit = np.zeros(1, dtype=np.int32)
+            dist = mujoco.mj_ray(e.model, e.data, start, world_dir, GROUND_ONLY, 1, -1, hit)
+            if 0 <= dist < 2.5:
+                pos = start + world_dir * dist + np.array([0, 0, 0.15])
+                ang = self.rng.uniform(0, 2 * np.pi)
+                vel = np.array([np.cos(ang), np.sin(ang), 0.15]) * speed * 0.8 + 0.4 * v_car
+        self.pos[i], self.vel[i], self.age[i], self.strength[i] = pos, vel, 0.0, level
+
+    def _advance(self, dt: float) -> None:
+        m, d = self.env.model, self.env.data
+        live = self.age < self.life
+        self.age[live] += dt
+        drag = np.exp(-(0.8 if self.space else 2.5) * dt)
+        self.vel[live] *= drag
+        if not self.space:
+            self.vel[live, 2] += 0.6 * dt  # warm gas drifts up a little
+        self.pos[live] += self.vel[live] * dt
+        for i in np.flatnonzero(self.age < np.inf):
+            t = self.age[i] / self.life
+            if t >= 1.0:
+                self.age[i] = np.inf
+                self._hide(i)
+                continue
+            g = self.puff_geom[i]
+            m.geom_size[g][0] = 0.2 + (0.5 if self.space else 1.3) * t
+            m.geom_rgba[g][3] = 0.32 * self.strength[i] * (1.0 - t) ** 1.5
+            d.mocap_pos[self.puff_mocap[i]] = self.pos[i]
 
 
 def yaw_quat(yaw: float) -> np.ndarray:
@@ -67,6 +184,15 @@ class RoadsterMixin:
         self.fuel = self.FUEL_SECONDS
         self.thrust_use = 0.0
         self.controls = dict.fromkeys(ALL_CONTROLS, 0.0)
+        # Exhaust effects cost nothing while training: training envs never render.
+        self.fx = ThrusterFX(self) if self.render_mode is not None else None
+
+    def update_visuals(self) -> None:
+        if self.fx is not None:
+            # Poses refresh on the next physics step (a 50 ms lag nobody can see). Calling
+            # mj_kinematics here would also refresh the pose the controllers read, making a
+            # rendered car behave slightly differently from the training cars.
+            self.fx.update(self.dt)
 
     def _in_car(self, b: int) -> bool:
         while b > 0:
@@ -87,6 +213,8 @@ class RoadsterMixin:
         self.fuel = self.FUEL_SECONDS
         self.thrust_use = 0.0
         self.controls = dict.fromkeys(ALL_CONTROLS, 0.0)
+        if getattr(self, "fx", None) is not None:
+            self.fx.reset()
 
     # --------------------------------------------------------------- action
     def apply_action(self, action: np.ndarray) -> None:

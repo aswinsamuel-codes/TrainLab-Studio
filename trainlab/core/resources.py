@@ -9,8 +9,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
+from pathlib import Path
 
 import psutil
 from stable_baselines3.common.callbacks import BaseCallback
@@ -55,11 +57,23 @@ class MemoryGuardCallback(BaseCallback):
     """Pause when free RAM drops below ``min_free_gb``; stop safely if it stays low."""
 
     def __init__(self, autosave, min_free_gb: float = 0.5, check_every: int = 1_000,
-                 max_wait_s: float = 600.0, verbose: int = 1):
+                 max_wait_s: float = 600.0, verbose: int = 1, run_dir=None):
         super().__init__(verbose)
         self.autosave, self.min_free, self.check_every, self.max_wait = autosave, min_free_gb, check_every, max_wait_s
         self.next_check = 0
         self.stopped_for_memory = False
+        # Studio shows this file as "paused for low memory" in the live panel.
+        self.flag = None if run_dir is None else Path(run_dir) / "live" / "paused.json"
+
+    def _set_paused(self, paused: bool) -> None:
+        if self.flag is None:
+            return
+        if paused:
+            self.flag.parent.mkdir(parents=True, exist_ok=True)
+            self.flag.write_text(json.dumps({"free_gb": round(free_ram_gb(), 2), "need_gb": self.min_free + 0.15,
+                                             "since": time.time()}))
+        else:
+            self.flag.unlink(missing_ok=True)
 
     def _on_step(self) -> bool:
         if self.num_timesteps < self.next_check:
@@ -73,11 +87,17 @@ class MemoryGuardCallback(BaseCallback):
                   f"Close some apps to continue.", flush=True)
         start = time.time()
         while time.time() - start < self.max_wait:
+            self._set_paused(True)  # refreshed every 5 s with the current free RAM
             time.sleep(5)
+            if self.flag is not None and (self.flag.parent.parent / "STOP").exists():
+                self._set_paused(False)
+                return False  # Stop button pressed while paused
             if free_ram_gb() >= self.min_free + 0.15:
+                self._set_paused(False)
                 if self.verbose:
                     print("[memory] RAM recovered - continuing.", flush=True)
                 return True
+        self._set_paused(False)
         self.stopped_for_memory = True
         print("[memory] RAM stayed low for 10 minutes - stopped to protect the laptop. "
               "Continue later with:  trainlab resume", flush=True)
