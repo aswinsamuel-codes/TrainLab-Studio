@@ -1,0 +1,11 @@
+# GapJump: long episodes (600 steps), sparse +-100 events -> high gamma.
+eval_every: 30000
+eval_episodes: 10
+curriculum:
+  threshold: 0.8
+algos:
+  ppo:
+    n_steps: 1024
+    batch_size: 512
+    gamma: 0.995
+    ent_coef: 0.001

@@ -1,0 +1,34 @@
+<mujoco model="__NAME__">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.005" integrator="implicitfast"/>
+  <visual>
+    <headlight ambient="0.35 0.35 0.35" diffuse="0.7 0.7 0.7"/>
+    <global offwidth="1280" offheight="720"/>
+  </visual>
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient" rgb1="0.35 0.55 0.85" rgb2="0.05 0.05 0.12" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.22 0.26 0.22" rgb2="0.18 0.21 0.18" width="512" height="512" mark="edge" markrgb="0.3 0.35 0.3"/>
+    <material name="grid" texture="grid" texrepeat="10 10"/>
+  </asset>
+  <worldbody>
+    <light directional="true" pos="0 0 20" dir="-0.3 0.2 -1"/>
+    <geom name="floor" type="plane" size="20 20 0.1" material="grid"/>
+    <geom name="goal" type="cylinder" size="0.5 0.005" pos="3 0 0.005" rgba="0.1 0.9 0.3 0.6" contype="0" conaffinity="0"/>
+
+    <body name="robot" pos="0 0 0.25">
+      <joint name="robot_x" type="slide" axis="1 0 0" damping="5"/>
+      <joint name="robot_y" type="slide" axis="0 1 0" damping="5"/>
+      <geom type="box" size="0.3 0.3 0.25" mass="10" rgba="0.2 0.45 0.85 1"/>
+      <camera name="chase" mode="trackcom" pos="-5 -5 5" xyaxes="0.707 -0.707 0 0.4 0.4 0.82"/>
+    </body>
+
+    <body name="ball" pos="2 0 0.25">
+      <joint name="ball_free" type="free"/>
+      <geom type="sphere" size="0.25" mass="2" rgba="0.95 0.5 0.1 1" friction="0.6 0.005 0.001"/>
+    </body>
+  </worldbody>
+  <actuator>
+    <motor name="push_x" joint="robot_x" gear="1" ctrlrange="-80 80"/>
+    <motor name="push_y" joint="robot_y" gear="1" ctrlrange="-80 80"/>
+  </actuator>
+</mujoco>

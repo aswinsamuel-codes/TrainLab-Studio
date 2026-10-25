@@ -1,0 +1,135 @@
+﻿<!--
+  Roadster-style electric sports car with a cold-gas thruster pack, built from
+  MuJoCo primitives. Dimensions/mass are rough public-ballpark figures for a 2-seat
+  EV sports car; this is a fan project with no connection to Tesla or SpaceX.
+
+  Placeholders (dollar-prefixed) filled in by trainlab/scenarios/_roadster.py:
+    name, gravity, world, start, quat, extra
+  Collision groups: world geoms (class="world") collide with car geoms (class="car");
+  car parts never collide with each other; class="deco" never collides.
+-->
+<mujoco model="$name">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.005" integrator="implicitfast" cone="elliptic" impratio="5" gravity="$gravity"/>
+
+  <visual>
+    <headlight ambient="0.35 0.35 0.35" diffuse="0.7 0.7 0.7" specular="0.1 0.1 0.1"/>
+    <global offwidth="1280" offheight="720" azimuth="150" elevation="-20"/>
+    <quality shadowsize="2048"/>
+    <map znear="0.05" zfar="800"/>
+  </visual>
+
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient" rgb1="0.35 0.55 0.85" rgb2="0.05 0.05 0.12" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.22 0.26 0.22" rgb2="0.18 0.21 0.18" width="512" height="512" mark="edge" markrgb="0.3 0.35 0.3"/>
+    <texture name="asphalt" type="2d" builtin="flat" rgb1="0.16 0.16 0.17" rgb2="0.2 0.2 0.2" width="64" height="64" random="0.25" mark="random" markrgb="0.3 0.3 0.3"/>
+    <material name="mat_grid" texture="grid" texrepeat="40 40" reflectance="0.05"/>
+    <material name="mat_road" texture="asphalt" texrepeat="20 4"/>
+    <material name="mat_ledge" rgba="0.45 0.42 0.38 1"/>
+    <material name="mat_metal" rgba="0.6 0.62 0.66 1" specular="0.8" shininess="0.8"/>
+    <material name="mat_paint" rgba="0.75 0.05 0.08 1" specular="0.9" shininess="0.9" reflectance="0.2"/>
+    <material name="mat_glass" rgba="0.08 0.1 0.14 0.9" specular="1" shininess="1"/>
+    <material name="mat_tyre" rgba="0.05 0.05 0.05 1"/>
+    <material name="mat_suit" rgba="0.95 0.95 0.95 1"/>
+  </asset>
+
+  <default>
+    <default class="world">
+      <geom contype="1" conaffinity="2" friction="1.0 0.005 0.0001"/>
+    </default>
+    <default class="car">
+      <geom contype="2" conaffinity="1" friction="1.2 0.005 0.0001"/>
+    </default>
+    <default class="deco">
+      <geom contype="0" conaffinity="0" mass="0"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <light name="sun" directional="true" pos="0 0 60" dir="-0.3 0.25 -1" diffuse="0.8 0.8 0.75" castshadow="true"/>
+    $world
+
+    <body name="chassis" pos="$start" quat="$quat" childclass="car">
+      <freejoint name="root"/>
+      <site name="cg" pos="0 0 0" size="0.05"/>
+      <camera name="chase" mode="trackcom" pos="-14 -8 6" xyaxes="0.496 -0.868 0 0.303 0.173 0.937"/>
+      <camera name="side" mode="trackcom" pos="0 -18 3" xyaxes="1 0 0 0 0.16 0.99"/>
+      <camera name="driver" mode="fixed" pos="-0.4 0.35 0.75" xyaxes="0 -1 0 0.15 0 0.99"/>
+
+      <geom name="body_main" type="box" size="2.1 0.95 0.22" mass="800" material="mat_paint"/>
+      <!-- battery pack: low and heavy, like a real EV skateboard -->
+      <geom name="battery" class="deco" type="box" size="1.6 0.8 0.05" pos="0 0 -0.2" mass="700" rgba="0.1 0.1 0.1 1"/>
+      <geom name="body_nose" type="box" size="0.35 0.85 0.12" pos="2.0 0 -0.06" mass="60" material="mat_paint"/>
+      <geom name="body_cabin" type="box" size="0.85 0.72 0.18" pos="-0.35 0 0.38" mass="120" material="mat_glass"/>
+      <geom class="deco" type="box" size="0.12 0.9 0.03" pos="-2.05 0 0.32" material="mat_paint"/>
+
+      <!-- Starman riding along (visual only) -->
+      <geom class="deco" type="capsule" size="0.16 0.22" pos="-0.45 0.35 0.45" material="mat_suit"/>
+      <geom class="deco" type="sphere" size="0.15" pos="-0.45 0.35 0.82" material="mat_suit"/>
+      <geom class="deco" type="sphere" size="0.11" pos="-0.36 0.35 0.83" material="mat_glass"/>
+
+      <!-- thruster nozzles (visual) -->
+      <geom class="deco" type="cylinder" size="0.09 0.06" pos="1.6 0.6 -0.25" material="mat_metal"/>
+      <geom class="deco" type="cylinder" size="0.09 0.06" pos="1.6 -0.6 -0.25" material="mat_metal"/>
+      <geom class="deco" type="cylinder" size="0.09 0.06" pos="-1.6 0.6 -0.25" material="mat_metal"/>
+      <geom class="deco" type="cylinder" size="0.09 0.06" pos="-1.6 -0.6 -0.25" material="mat_metal"/>
+      <geom class="deco" type="cylinder" size="0.12 0.08" pos="-2.15 0 0" zaxis="1 0 0" material="mat_metal"/>
+
+      <!-- front left -->
+      <body name="mount_fl" pos="1.35 1.1 -0.25">
+        <inertial pos="0 0 0" mass="8" diaginertia="0.1 0.1 0.1"/>
+        <joint name="susp_fl" type="slide" axis="0 0 1" range="-0.12 0.12" stiffness="90000" damping="5000"/>
+        <joint name="steer_fl" type="hinge" axis="0 0 1" range="-0.55 0.55" damping="400"/>
+        <body name="wheel_fl">
+          <joint name="spin_fl" type="hinge" axis="0 1 0" damping="0.5"/>
+          <geom name="wheel_fl" type="cylinder" size="0.35 0.13" zaxis="0 1 0" mass="25" margin="0.03" gap="0.03" material="mat_tyre"/>
+        </body>
+      </body>
+      <!-- front right -->
+      <body name="mount_fr" pos="1.35 -1.1 -0.25">
+        <inertial pos="0 0 0" mass="8" diaginertia="0.1 0.1 0.1"/>
+        <joint name="susp_fr" type="slide" axis="0 0 1" range="-0.12 0.12" stiffness="90000" damping="5000"/>
+        <joint name="steer_fr" type="hinge" axis="0 0 1" range="-0.55 0.55" damping="400"/>
+        <body name="wheel_fr">
+          <joint name="spin_fr" type="hinge" axis="0 1 0" damping="0.5"/>
+          <geom name="wheel_fr" type="cylinder" size="0.35 0.13" zaxis="0 1 0" mass="25" margin="0.03" gap="0.03" material="mat_tyre"/>
+        </body>
+      </body>
+      <!-- rear left -->
+      <body name="mount_rl" pos="-1.35 1.1 -0.25">
+        <inertial pos="0 0 0" mass="8" diaginertia="0.1 0.1 0.1"/>
+        <joint name="susp_rl" type="slide" axis="0 0 1" range="-0.12 0.12" stiffness="90000" damping="5000"/>
+        <body name="wheel_rl">
+          <joint name="spin_rl" type="hinge" axis="0 1 0" damping="0.5"/>
+          <geom name="wheel_rl" type="cylinder" size="0.35 0.13" zaxis="0 1 0" mass="25" margin="0.03" gap="0.03" material="mat_tyre"/>
+        </body>
+      </body>
+      <!-- rear right -->
+      <body name="mount_rr" pos="-1.35 -1.1 -0.25">
+        <inertial pos="0 0 0" mass="8" diaginertia="0.1 0.1 0.1"/>
+        <joint name="susp_rr" type="slide" axis="0 0 1" range="-0.12 0.12" stiffness="90000" damping="5000"/>
+        <body name="wheel_rr">
+          <joint name="spin_rr" type="hinge" axis="0 1 0" damping="0.5"/>
+          <geom name="wheel_rr" type="cylinder" size="0.35 0.13" zaxis="0 1 0" mass="25" margin="0.03" gap="0.03" material="mat_tyre"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <motor name="drive_fl" joint="spin_fl" ctrlrange="-2500 2500"/>
+    <motor name="drive_fr" joint="spin_fr" ctrlrange="-2500 2500"/>
+    <motor name="drive_rl" joint="spin_rl" ctrlrange="-2500 2500"/>
+    <motor name="drive_rr" joint="spin_rr" ctrlrange="-2500 2500"/>
+    <position name="steer_fl" joint="steer_fl" kp="30000" ctrlrange="-0.5 0.5"/>
+    <position name="steer_fr" joint="steer_fr" kp="30000" ctrlrange="-0.5 0.5"/>
+    <!-- thruster pack: forces/torques in the car's own frame, ctrl in [-1, 1] -->
+    <general name="thrust_x" site="cg" gear="15000 0 0 0 0 0" ctrlrange="-1 1"/>
+    <general name="thrust_y" site="cg" gear="0 8000 0 0 0 0" ctrlrange="-1 1"/>
+    <general name="thrust_z" site="cg" gear="0 0 32000 0 0 0" ctrlrange="-1 1"/>
+    <general name="torque_roll" site="cg" gear="0 0 0 6000 0 0" ctrlrange="-1 1"/>
+    <general name="torque_pitch" site="cg" gear="0 0 0 0 9000 0" ctrlrange="-1 1"/>
+    <general name="torque_yaw" site="cg" gear="0 0 0 0 0 9000" ctrlrange="-1 1"/>
+  </actuator>
+  $extra
+</mujoco>

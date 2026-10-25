@@ -1,0 +1,57 @@
+# Fallback training settings for any scenario without its own YAML.
+# A scenario config (configs/<scenario>.yaml or generated/<name>/config.yaml)
+# is merged on top of this file.
+# Parallel simulations and CPU threads are picked from your RAM automatically
+# (8 GB laptop -> 2 envs, 2 threads, low priority). Uncomment to force your own:
+# n_envs: 4             # each ~100 MB RAM
+# torch_threads: 4
+autosave_every: 20000   # save progress this often; a shutdown loses at most this much (trainlab resume)
+# min_free_ram_gb: 0.2  # pause training when free RAM drops below this
+eval_every: 30000       # env steps between evaluations
+eval_episodes: 10
+live_every: 25000       # record one live trial-and-error clip this often (Studio live view)
+curriculum:
+  threshold: 0.8        # eval success rate needed to move up a level
+algos:
+  ppo:
+    learning_rate: 0.0003
+    n_steps: 1024
+    batch_size: 256
+    n_epochs: 10
+    gamma: 0.995
+    gae_lambda: 0.95
+    clip_range: 0.2
+    ent_coef: 0.0
+    net_arch: [256, 256]
+  a2c:
+    learning_rate: 0.0007
+    n_steps: 16
+    gamma: 0.995
+    net_arch: [256, 256]
+  sac:
+    learning_rate: 0.0003
+    buffer_size: 1000000
+    batch_size: 256
+    gamma: 0.99
+    learning_starts: 10000
+    train_freq: 1
+    gradient_steps: 1
+    net_arch: [256, 256]
+  td3:
+    learning_rate: 0.0003
+    buffer_size: 1000000
+    batch_size: 256
+    gamma: 0.99
+    learning_starts: 10000
+    net_arch: [256, 256]
+  dqn:
+    learning_rate: 0.0001
+    buffer_size: 200000
+    batch_size: 128
+    gamma: 0.99
+    learning_starts: 20000
+    train_freq: 4
+    target_update_interval: 5000
+    exploration_fraction: 0.2
+    exploration_final_eps: 0.05
+    net_arch: [256, 256]
