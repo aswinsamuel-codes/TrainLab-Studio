@@ -40,6 +40,10 @@ def roadster_xml(world: str, name: str = "roadster", gravity: str = "0 0 -9.81",
     puffs = "\n".join(f'<body name="puff{i}" mocap="true" pos="{start_str}">'
                       f'<geom class="deco" type="sphere" size="0.2" material="mat_smoke"/></body>'
                       for i in range(N_PUFFS))
+    # MuJoCo scales the camera's near clip plane by the scene extent. A long road (e.g. the 320 m
+    # sprint) would push it ~17 m out and hide the car, so pin a car-sized extent (visual only).
+    if "<statistic" not in extra:
+        extra += '\n<statistic extent="25"/>'
     return Template(ASSET.read_text()).substitute(
         name=name, gravity=gravity, world=world + "\n" + puffs, extra=extra,
         start=" ".join(f"{v:g}" for v in start), quat=" ".join(f"{v:g}" for v in quat))

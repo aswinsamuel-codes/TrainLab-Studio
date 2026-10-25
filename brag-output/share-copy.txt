@@ -1,0 +1,1 @@
+I gave a sports car rocket thrusters and let an AI crash it until it learned to jump a pit and park. TrainLab Studio trains agents in real 3D physics on a regular laptop (no GPU): this one took ~7 minutes. Describe your own world and the AI model of your choice builds it. Open source: github.com/aswinsamuel-codes/TrainLab-Studio

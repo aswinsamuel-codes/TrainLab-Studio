@@ -2,6 +2,11 @@
 
 **Train reinforcement-learning agents on any 3D simulation, or just describe one in plain English.**
 
+[![Watch the TrainLab Studio launch video (23 s)](brag-output/brag.jpg)](brag-output/brag.mp4)
+
+▶️ *Click the image to watch the 23-second launch video* ([brag-output/brag.mp4](brag-output/brag.mp4)).
+Every shot in it is real TrainLab output: real physics crashes, the trained sample parking, and the Studio UI.
+
 TrainLab takes the classic *Lunar Lander* idea: an agent learns a hard control task from a
 shaped reward. It moves that into full 3D physics (MuJoCo), makes it general (any scenario
 is one Python file plus one XML model), and adds a web Studio where you type an idea. The AI model
