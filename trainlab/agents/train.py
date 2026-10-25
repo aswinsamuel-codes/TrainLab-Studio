@@ -96,11 +96,15 @@ def find_unfinished() -> Path | None:
 
 
 def resume_run(run_dir: Path | None = None, verbose: int = 1, live: bool = True, spectate: bool = False,
-               view: bool = False) -> Path:
+               view: bool = False, steps: int | None = None) -> Path:
+    """Continue a run from its last save. ``steps`` raises the run's total (to train a finished run longer)."""
     run_dir = Path(run_dir) if run_dir else find_unfinished()
     if run_dir is None:
-        raise SystemExit("Nothing to resume: every run in runs/ has finished.")
+        raise SystemExit("Nothing to resume: every run in runs/ has finished. "
+                         "To train one longer: trainlab resume <run folder> --steps <new total>")
     meta = json.loads((run_dir / "run.json").read_text())
+    if steps:
+        meta["steps"] = int(steps)
     return train(meta["scenario"], meta["algo"], meta["steps"], meta.get("n_envs"), meta["seed"],
                  curriculum=meta.get("curriculum", True), wind=meta.get("wind"), run_dir=run_dir,
                  resume=run_dir, verbose=verbose, live=live, spectate=spectate, view=view)

@@ -22,7 +22,13 @@ class TrainedPolicy:
             best, final = self.run_dir / "best_model.zip", self.run_dir / "final_model.zip"
             model_file = best if (prefer == "best" and best.exists()) else final
         self.model = ALGOS[self.meta["algo"]].load(str(model_file), device="cpu")
-        stats = self.run_dir / ("vecnormalize_best.pkl" if model_file.stem == "best_model" else "vecnormalize.pkl")
+        # each saved model has its own input-scaling stats; mismatched stats make a good policy look bad
+        if model_file.stem == "best_model":
+            stats = self.run_dir / "vecnormalize_best.pkl"
+        elif model_file.stem.endswith("_model") and model_file.stem.startswith("level"):
+            stats = self.run_dir / f"{model_file.stem[:-len('_model')]}_vecnormalize.pkl"  # levelN snapshot
+        else:
+            stats = self.run_dir / "vecnormalize.pkl"
         if not stats.exists():
             stats = self.run_dir / "vecnormalize.pkl"
         self.vecnorm = None

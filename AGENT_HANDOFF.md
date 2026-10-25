@@ -163,6 +163,44 @@ simulations. It takes the "Lunar Lander + reward shaping" tutorial idea, moves i
 - `tests/`: pytest covering env checks, determinism, physics sanity, validator safety,
   providers, live view and resume.
 
+### Body + Task framework (added after the first handoff)
+
+- `bodies/base.py`: the `Body` base class. It holds state helpers (pos, rot, vel, up_z,
+  world_contacts) and hooks: `xml(start)`, `bind`, `place`, `apply_action`,
+  `substep_control`, `obs`, `crash_reason`, `effort`, `update_visuals`.
+- `tasks/base.py`:
+  - `Task` base class: `world_xml`, `actuators_xml`, `randomize`, `obs`, `check_done`,
+    `compute_reward`, and `substep(t)` for moving platforms. `span(key)` returns the raw
+    curriculum range; `randomize()` receives each range already sampled once.
+  - `BodyTaskEnv` and `body_task_env(body, task)` build the scenario class.
+  - Shared MJCF: `assets/world_template.xml`.
+- `bodies/drone.py`: the `DroneBody`.
+  - A 1.16 kg X-frame quad, 4 site actuators (7 N max each, plus a yaw drag torque).
+  - Controls: thrust, roll, pitch, yaw in "angle mode". An attitude PD loop plus a motor
+    mixer run in `substep_control` at 200 Hz.
+  - `DroneFX` (render only) spins the props and adds downwash dust.
+- `tasks/waypoints.py` and `tasks/landing.py`.
+  - The landing pad is a **real body moved by stiff position actuators (gravcomp)**, not a
+    mocap. With mocap, a moving deck didn't carry the drone, because mocap surfaces have
+    zero velocity for friction.
+- `scenarios/body_tasks.py`: the PAIRS list, registered as `drone_waypoints` and `drone_landing`.
+- **Verified:** a scripted autopilot wins all 4 levels of both tasks (48/48), including the
+  moving ship deck. 65 tests pass.
+- `bodies/rover.py`: the `RoverBody`.
+  - About 61 kg, 6 wheels with slide suspension, skid steer, and a wheel-speed controller in
+    `substep_control`. Controls: drive, turn. Top speed 2.5 m/s.
+  - `LaserEyes` (in `bodies/base.py`): 7 `mj_ray` beams that only see group 0 (the world).
+    The beams are drawn through **mocap bodies**: MuJoCo re-reads a world-body geom's
+    position but not its rotation.
+- `WaypointsTask` adapts to the body. `curriculum_for(body)` returns the flying table or
+  `GROUND_CURRICULUM`; `start_for(body)` uses `body.spawn_z`. Ground targets sit at spawn
+  height, distance is 2D, and levels 2–3 place up to 12 mocap ellipsoid rocks near the
+  route. Body traits: `flies`, `spawn_z`, `reach`.
+- **Rover autopilot results:** levels 0–1 6/6, level 2 8/10, level 3 3/10 (hard but winnable). 71 tests pass.
+- **Next:** a Roadster body adapter (the existing roadster_* scenarios are
+  standalone and still use `_roadster.py`), then make the Studio generator write only the
+  task for a chosen library body.
+
 ## 4. Current results
 
 - **Sample run** (`runs/roadster_gap_jump/ppo_studio_20261025-074748`): PPO, 300k steps,

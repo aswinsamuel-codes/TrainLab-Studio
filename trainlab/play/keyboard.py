@@ -18,6 +18,8 @@ KEYMAP = {
     "throttle": ("w", "s"), "steer": ("a", "d"), "brake": ("left shift", None),
     "lift": ("space", None), "pitch": ("k", "i"), "roll": ("l", "j"), "yaw": ("q", "e"),
     "thrust_x": ("up", "down"), "thrust_y": ("left", "right"), "thrust_z": ("space", "left ctrl"),
+    "thrust": ("w", "s"),  # drone: climb / sink (pitch I/K, roll J/L, yaw Q/E as above)
+    "drive": ("w", "s"), "turn": ("a", "d"),  # rover
 }
 # for scenarios without named controls: action dim i -> key pair
 GENERIC_KEYS = [("w", "s"), ("a", "d"), ("i", "k"), ("j", "l"), ("up", "down"),

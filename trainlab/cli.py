@@ -55,6 +55,7 @@ def main(argv=None) -> int:
     sp.add_argument("--no-live", action="store_true")
     sp.add_argument("--spectate", action="store_true")
     sp.add_argument("--view", action="store_true")
+    sp.add_argument("--steps", type=_steps, default=None, help="new total steps (train a finished run longer)")
 
     sub.add_parser("status", help="show this machine's training profile and unfinished runs")
 
@@ -115,7 +116,7 @@ def main(argv=None) -> int:
     elif a.cmd == "resume":
         from trainlab.agents.train import resume_run
 
-        rd = resume_run(a.run, live=not a.no_live, spectate=a.spectate, view=a.view)
+        rd = resume_run(a.run, live=not a.no_live, spectate=a.spectate, view=a.view, steps=a.steps)
         print(f"\nRun folder: {rd}")
     elif a.cmd == "status":
         import json as _json

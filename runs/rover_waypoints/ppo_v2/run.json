@@ -1,0 +1,33 @@
+{
+  "scenario": "rover_waypoints",
+  "algo": "ppo",
+  "discrete": false,
+  "level": 0,
+  "seed": 0,
+  "steps": 1000000,
+  "n_envs": 2,
+  "wind": null,
+  "curriculum": true,
+  "max_level": 4,
+  "hyperparams": {
+    "learning_rate": 0.0003,
+    "n_steps": 1024,
+    "batch_size": 256,
+    "n_epochs": 10,
+    "gamma": 0.995,
+    "gae_lambda": 0.95,
+    "clip_range": 0.2,
+    "ent_coef": 0.0,
+    "net_arch": [
+      256,
+      256
+    ]
+  },
+  "machine": "low (8 GB)",
+  "started": "2026-10-25 13:26:55",
+  "final_level": 3,
+  "timesteps": 1001472,
+  "status": "finished",
+  "wall_seconds": 1782.7,
+  "finished": "2026-10-25 13:56:38"
+}

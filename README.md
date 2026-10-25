@@ -29,6 +29,40 @@ pack** and Starman in the passenger seat.
 Every scenario has a **difficulty curriculum**: wider gaps, higher ledges, stronger wind
 gusts and so on. The agent moves up a level automatically once its success rate passes 80%.
 
+### Bodies + Tasks: train a drone, rover, robot... (not just the car)
+
+New scenarios are built from two parts that mix and match:
+
+- **Body:** the thing being trained, meaning its shape, motors, controls and sensors (`trainlab/bodies/`).
+- **Task:** the world, the goal and the reward (`trainlab/tasks/`).
+
+Every body + task pair becomes a normal scenario named `<body>_<task>`.
+
+| Scenario | The agent must... | Controls |
+|---|---|---|
+| `drone_waypoints` | take off and fly through a chain of floating targets (up to 5, with wind) | thrust, roll, pitch, yaw |
+| `drone_landing` | land gently on a pad; at the top level it's a **ship deck** that bobs, drifts and pitches in gusty wind | thrust, roll, pitch, yaw |
+| `rover_waypoints` | drive a 6-wheel rover to targets on the ground; harder levels scatter rocks along the route | drive, turn |
+
+**The rover** is a 60 kg, Mars-rover-style robot. It has 6 wheels with spring suspension,
+skid steering like a tank, and speed-controlled wheel motors. It "sees" with **laser eyes**:
+7 rangefinder beams fanned across the front (120°, 4 m), drawn as red lines that stop at
+whatever they hit. Any body can reuse `LaserEyes` from `bodies/base.py`.
+
+**The drone** is a 1.2 kg quadcopter with 4 motors. It has a built-in flight stabilizer, like a
+real drone's "angle mode": the AI decides *where* to fly, and the stabilizer keeps the 4
+propellers balanced 200 times a second. That's what makes it trainable on a laptop. The
+props spin and kick up dust near the ground, but only when it's being drawn, so training isn't slowed.
+
+```bash
+trainlab play drone_landing      # W/S climb-sink, I/K pitch, J/L roll, Q/E yaw
+trainlab play rover_waypoints    # W/S drive, A/D turn
+trainlab train drone_landing --steps 300000
+```
+
+Adding your own: write a `Body` (see `bodies/drone.py`) or a `Task` (see `tasks/landing.py`),
+then add the pair to `scenarios/body_tasks.py`.
+
 ---
 
 ## Install (Windows, CPU only is fine)
@@ -183,6 +217,7 @@ TrainLab reads your RAM and picks gentle settings automatically. Run `trainlab s
   ```bash
   trainlab status     # shows unfinished runs
   trainlab resume     # continues the most recent one from its last autosave
+  trainlab resume runs/rover_waypoints/<run> --steps 1e6   # train a finished run longer
   ```
 
   Studio has a **Resume unfinished run** button for the same thing.

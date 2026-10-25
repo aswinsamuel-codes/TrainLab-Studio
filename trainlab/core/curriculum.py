@@ -26,6 +26,9 @@ class CurriculumCallback(BaseCallback):
         if rate >= self.threshold and self.level < self.max_level:
             if self.run_dir is not None:
                 self.model.save(self.run_dir / f"level{self.level}_model")
+                venv = self.model.get_vec_normalize_env()
+                if venv is not None:  # the snapshot needs its own input-scaling stats to replay correctly
+                    venv.save(str(self.run_dir / f"level{self.level}_vecnormalize.pkl"))
             self.level += 1
             for env in (self.train_env, self.eval_env):
                 env.env_method("set_level", self.level)

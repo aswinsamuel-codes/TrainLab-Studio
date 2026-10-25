@@ -1,0 +1,57 @@
+<!--
+  Shared world for Body + Task scenarios (trainlab/tasks/base.py fills the dollar-prefixed
+  placeholders): a body (drone, rover, ...) supplies its own XML, defaults, materials and
+  actuators; a task supplies the world it plays in.
+
+  Render groups: 0 world, 1 body collision parts, 2 looks/effects, 3 hidden.
+  Collision: world geoms (class="world") collide with body geoms; body parts never collide
+  with each other; class="deco" never collides.
+-->
+<mujoco model="$name">
+  <compiler angle="radian" autolimits="true"/>
+  <option timestep="0.005" integrator="implicitfast" cone="elliptic" impratio="3" gravity="$gravity"/>
+
+  <visual>
+    <headlight ambient="0.35 0.35 0.35" diffuse="0.7 0.7 0.7" specular="0.1 0.1 0.1"/>
+    <global offwidth="1280" offheight="720" azimuth="150" elevation="-20"/>
+    <quality shadowsize="2048"/>
+    <map znear="0.01" zfar="500"/>
+  </visual>
+  <!-- Pin the scene size so the camera's near clip plane stays close (visual only). -->
+  <statistic extent="$extent" center="0 0 1"/>
+
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient" rgb1="0.35 0.55 0.85" rgb2="0.05 0.05 0.12" width="512" height="512"/>
+    <texture name="grid" type="2d" builtin="checker" rgb1="0.22 0.26 0.22" rgb2="0.18 0.21 0.18" width="512" height="512" mark="edge" markrgb="0.3 0.35 0.3"/>
+    <material name="mat_grid" texture="grid" texrepeat="60 60" reflectance="0.05"/>
+    <material name="mat_metal" rgba="0.6 0.62 0.66 1" specular="0.8" shininess="0.8"/>
+    <material name="mat_dark" rgba="0.08 0.08 0.09 1" specular="0.3"/>
+    <material name="mat_pad" rgba="0.2 0.22 0.26 1"/>
+    <material name="mat_mark" rgba="0.95 0.95 0.95 1"/>
+    <material name="mat_target" rgba="0.15 0.9 0.4 0.55" emission="0.5"/>
+    <material name="mat_dust" rgba="0.75 0.72 0.65 0" specular="0" shininess="0"/>
+    <material name="mat_rock" rgba="0.52 0.36 0.27 1" specular="0.1"/>
+    $assets
+  </asset>
+
+  <default>
+    <default class="world">
+      <geom contype="1" conaffinity="2" friction="1.0 0.005 0.0001" group="0"/>
+    </default>
+    <default class="deco">
+      <geom contype="0" conaffinity="0" mass="0" group="2"/>
+    </default>
+    $defaults
+  </default>
+
+  <worldbody>
+    <light name="sun" directional="true" pos="0 0 60" dir="-0.3 0.25 -1" diffuse="0.8 0.8 0.75" castshadow="true"/>
+    $world
+    $body
+  </worldbody>
+
+  <actuator>
+    $actuators
+  </actuator>
+  $extra
+</mujoco>
